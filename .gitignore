@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# audio — never commit large media files to git
+/public/audio/
+/audio-seeds/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
