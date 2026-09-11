@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 
 type Props = {
+  slug: string;
+  title: string;
+  category: string;
   audioUrl: string | null;
   durationSeconds: number;
 };
@@ -15,6 +18,8 @@ const TIMER_OPTIONS = [
   { label: "2H", minutes: 120 },
 ];
 
+const FADE_SECONDS = 30;
+
 function formatTime(s: number) {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -23,29 +28,73 @@ function formatTime(s: number) {
   return `${pad(h)}:${pad(m)}:${pad(sec)}`;
 }
 
-export default function Player({ audioUrl, durationSeconds }: Props) {
+function resumeKey(slug: string) {
+  return `noisy:resume:${slug}`;
+}
+
+export default function Player({
+  slug,
+  title,
+  category,
+  audioUrl,
+  durationSeconds,
+}: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [timerMinutes, setTimerMinutes] = useState(0);
   const [timerRemaining, setTimerRemaining] = useState<number | null>(null);
 
+  // Restore last position
+  useEffect(() => {
+    if (!audioUrl) return;
+    const saved = Number(localStorage.getItem(resumeKey(slug)) || 0);
+    if (saved > 5 && saved < durationSeconds - 5 && audioRef.current) {
+      audioRef.current.currentTime = saved;
+      setElapsed(saved);
+    }
+  }, [slug, audioUrl, durationSeconds]);
+
+  // Tick: elapsed + timer countdown + fade-out + persist position
   useEffect(() => {
     if (!playing) return;
     const id = setInterval(() => {
-      setElapsed((e) => Math.min(e + 1, durationSeconds));
+      const a = audioRef.current;
+      const t = a ? Math.floor(a.currentTime) : elapsed + 1;
+      setElapsed(t);
+      if (a) localStorage.setItem(resumeKey(slug), String(t));
+
       setTimerRemaining((r) => {
         if (r === null) return r;
+        if (a && r <= FADE_SECONDS) {
+          a.volume = Math.max(0, r / FADE_SECONDS);
+        }
         if (r <= 1) {
+          if (a) {
+            a.pause();
+            a.volume = 1;
+          }
           setPlaying(false);
-          audioRef.current?.pause();
           return null;
         }
         return r - 1;
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [playing, durationSeconds]);
+  }, [playing, slug, elapsed]);
+
+  // Media Session API: lockscreen / OS-level controls
+  useEffect(() => {
+    if (typeof window === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+      artist: "Noisy",
+      album: category,
+    });
+    navigator.mediaSession.setActionHandler("play", () => toggle());
+    navigator.mediaSession.setActionHandler("pause", () => toggle());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, category]);
 
   const toggle = () => {
     const audio = audioRef.current;
@@ -53,24 +102,32 @@ export default function Player({ audioUrl, durationSeconds }: Props) {
       setPlaying((p) => !p);
       return;
     }
-    if (playing) {
-      audio.pause();
-      setPlaying(false);
-    } else {
+    if (audio.paused) {
       audio.play();
       setPlaying(true);
+    } else {
+      audio.pause();
+      setPlaying(false);
     }
   };
 
   const setTimer = (minutes: number) => {
     setTimerMinutes(minutes);
     setTimerRemaining(minutes === 0 ? null : minutes * 60);
+    if (audioRef.current) audioRef.current.volume = 1;
   };
 
   return (
     <div className="font-mono">
       {audioUrl && (
-        <audio ref={audioRef} src={audioUrl} loop preload="none" />
+        <audio
+          ref={audioRef}
+          src={audioUrl}
+          loop
+          preload="metadata"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+        />
       )}
 
       <div className="flex items-center justify-between">

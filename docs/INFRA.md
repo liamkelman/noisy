@@ -14,7 +14,13 @@ Four accounts. Roughly 30–45 min total. Do them in this order.
 
 ---
 
-## 2. Cloudflare R2 — for audio files (15 min)
+## 2. Cloudflare R2 — for audio files (DEFERRED)
+
+> **Status**: not set up yet. Audio currently served from `/public` via Vercel.
+> Migrate when: (a) we have >5 tracks, or (b) monthly Vercel bandwidth nears 50 GB.
+> Original setup steps preserved below for when that day comes.
+
+
 
 R2 has free egress, which matters because each 8hr listen = ~440 MB.
 
@@ -34,21 +40,16 @@ I'll use those to configure `rclone` and upload the motorway track.
 
 ---
 
-## 3. Supabase — for track metadata (10 min)
+## 3. Neon — serverless Postgres for track metadata (10 min)
 
-1. Sign up / log in at https://supabase.com
-2. **New project**
+1. Sign up / log in at https://console.neon.tech
+2. **Create project**
    - Name: `noisy`
-   - Database password: generate strong, save to your password manager
    - Region: closest to you (London / Frankfurt for UK)
-   - Plan: Free
-3. Wait ~2 min for provisioning
-4. **SQL Editor → New query** → paste contents of `sql/001_tracks.sql` → Run
-5. **Project Settings → API** — copy:
-   - **Project URL** (`https://xxx.supabase.co`)
-   - **anon public key**
-   - **service_role key** (secret — never commit, never expose to browser)
-6. Paste all three back to me
+   - Postgres version: latest
+3. From the dashboard, copy the **pooled connection string** (looks like `postgresql://user:pass@ep-xxx-pooler.<region>.aws.neon.tech/neondb?sslmode=require`)
+4. **SQL Editor** → paste contents of `sql/001_tracks.sql` → Run
+5. Paste the connection string back to me — I'll add it as `DATABASE_URL`
 
 ---
 
@@ -57,10 +58,8 @@ I'll use those to configure `rclone` and upload the motorway track.
 1. Sign up / log in at https://vercel.com using your GitHub account
 2. **Add New → Project** → import the `noisy` repo
 3. Don't deploy yet — first add env vars:
-   - `SUPABASE_URL` = your Supabase project URL
-   - `SUPABASE_SERVICE_ROLE_KEY` = service_role key
-   - `NEXT_PUBLIC_SUPABASE_URL` = same as SUPABASE_URL
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = anon public key
+   - `DATABASE_URL` = your Neon pooled connection string
+   - `NEXT_PUBLIC_SITE_URL` = your production URL (e.g. `https://noisy.fm`)
 4. Hit Deploy
 
 ---
@@ -71,7 +70,7 @@ I'll use those to configure `rclone` and upload the motorway track.
 |---|---|
 | GitHub repo URL | Wire up the remote, push initial commit |
 | R2 Account ID + keys | Configure rclone, upload mp3 + opus, give you the public URL |
-| Supabase URL + keys | Add to `.env.local`, migrate hardcoded `tracks.ts` → DB-backed reads |
+| Neon `DATABASE_URL` | Add to `.env.local`, run schema migration, seed the motorway row |
 
 Once those three are done, swap `audioUrl` in the DB row to the R2 URL and the site is production-ready (just needs domain + Vercel deploy).
 
@@ -81,6 +80,6 @@ Once those three are done, swap `audioUrl` in the DB row to the R2 URL and the s
 |---|---|---|
 | Vercel Hobby | 100 GB bandwidth | We never hit this because audio is on R2, not Vercel |
 | Cloudflare R2 | 10 GB storage, free egress, 1M Class A ops/mo | ~25 tracks at 8hr each = 11 GB; minor overage cost |
-| Supabase Free | 500 MB DB, 50k MAUs, 5 GB egress | Metadata-only DB will never fill this |
+| Neon Free | 0.5 GB storage, 190 compute-hours/mo, auto-suspend | Metadata-only DB will never fill this |
 | GitHub | private repos free | n/a |
 | **Total** | **£0** | Probably £0–£5/mo for the first year unless we go viral |
